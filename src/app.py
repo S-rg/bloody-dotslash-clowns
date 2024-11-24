@@ -1,23 +1,22 @@
+import cv2
+import numpy as np
+from PIL import Image
+
 import streamlit as st
 from py3dbp import Packer, Bin, Item
-from PIL import Image
-import numpy as np
-import utils.plotly_utils
 
-# Now imports will work
 from utils.plotly_utils import *
+import detect_objects as dobj
+from object_labeling import label_image
+
+
+
 # Hold states of items and shelves
 if "items" not in st.session_state:
     st.session_state["items"] = []
 if "shelves" not in st.session_state:
     st.session_state["shelves"] = []
 
-# TODO: Replace this function with OpenCV Object Detection and Measurement
-# Function to calculate dimensions using a reference object
-def calculate_dimensions(reference_dim, ref_size_px, obj_size_px):
-    if not (len(reference_dim) == len(ref_size_px) == len(obj_size_px)):
-        raise ValueError("All input lists must have the same length (width, length, height).")
-    return [dim * obj_px / ref_px for dim, obj_px, ref_px in zip(reference_dim, obj_size_px, ref_size_px)]
 
 # Define pages
 st.sidebar.title("Navigation")
@@ -47,8 +46,12 @@ if page == "Home":
             else:
                 for i in range(len(top_views)):
                     st.subheader(f"Item {i + 1}: Configure Dimensions")
-                    item_name = st.text_input(f"Item {i + 1} Name", value=f"Item {i + 1}")
-                    rotation = 0
+                    
+                    #TODO: crop image to item, and then run object labeling on it
+                    item_name_val = label_image(top_views[i])
+
+                    item_name = st.text_input(f"Item {i + 1} Name", value=item_name_val)
+                    rotation = 1
 
                     # Reference object details for top view
                     st.subheader("Reference Object Details (Top View)")
@@ -59,38 +62,39 @@ if page == "Home":
                         f"Known Length of Reference Object (Item {i + 1})", value=5.5, step=0.1
                     )
 
-                    # TODO: Get these from OpenCV
-                    ref_size_px_top = 100
-                    obj_width_px = 100
-                    obj_length_px = 100
+                    st.divider()
 
                     # Reference object details for front view
                     st.subheader("Reference Object Details (Front View)")
                     ref_height = st.number_input(
                         f"Known Height of Reference Object (Item {i + 1})", value=5.5, step=0.1,
                     )
-                    ref_size_px_front = st.number_input(
-                        f"Pixel Size of Reference Object in Front View (Item {i + 1})", value=100.0, step=1.0
-                    )
-                    st.divider()
 
-                    obj_height_px = st.number_input(
-                        f"Pixel Height of Object in Front View (Item {i + 1})", value=50.0, step=1.0
-                    )
+                    # Get the dimensions of the object in the image
+                    top_file_bytes = np.asarray(bytearray(top_views[i].read()), dtype=np.uint8)
+                    image_top = cv2.imdecode(top_file_bytes, cv2.IMREAD_COLOR)
+                    front_file_bytes = np.asarray(bytearray(front_views[i].read()), dtype=np.uint8)
+                    image_front = cv2.imdecode(front_file_bytes, cv2.IMREAD_COLOR)
+                    
+                    ref_real = [ref_height, ref_width, ref_length]
+                    ref_px, obj_px = dobj.get_objects(image_top, image_front)
+                    obj_real = dobj.get_real_dimensions(ref_px, obj_px, ref_real)
+
+                    # Simply display the opencv computed values:
+                    st.write(f"Reference dims (pixels): {ref_px}")
+                    st.write(f"Reference dims (real-world): {ref_real} cm")
+                    st.write(f"Object dims (pixels): {obj_px}")
+                    st.write(f"Object dims (real-world): {obj_real} cm")
+
 
                     if st.button(f"Add Item {i + 1}"):
-                        # Calculate dimensions
-                        ref_dims = [ref_width, ref_length, ref_height]
-                        ref_size_px = [ref_size_px_top, ref_size_px_top, ref_size_px_front]
-                        obj_size_px = [obj_width_px, obj_length_px, obj_height_px]
-                        dimensions = calculate_dimensions(ref_dims, ref_size_px, obj_size_px)
-
                         st.session_state["items"].append(
-                            {"name": item_name, "rotation": rotation, "dimensions": dimensions}
+                            {"name": item_name, "rotation": rotation, "dimensions": obj_real}
                         )
-                        st.success(f"Item '{item_name}' added with dimensions: {dimensions} and rotation {rotation}")
+                        st.success(f"Item '{item_name}' added with dimensions: {obj_real} and rotation {rotation}")
 
     # Upload shelf images
+    #TODO: Add shelf detection and dimension calculation
     st.header("Shelves")
     with st.expander("Upload Shelf Images"):
         top_views_shelf = st.file_uploader(
@@ -128,6 +132,7 @@ if page == "Home":
                     shelf_width_px = st.number_input(
                         f"Pixel Width of Shelf in Top View (Shelf {i + 1})", value=50.0, step=1.0
                     )
+
                     shelf_length_px = st.number_input(
                         f"Pixel Length of Shelf in Top View (Shelf {i + 1})", value=50.0, step=1.0
                     )
@@ -154,7 +159,7 @@ if page == "Home":
                             ref_size_px_front_shelf,
                         ]
                         shelf_size_px = [shelf_width_px, shelf_length_px, shelf_height_px]
-                        dimensions_shelf = calculate_dimensions(ref_dims_shelf, ref_size_px_shelf, shelf_size_px)
+                        dimensions_shelf = [30.0, 40.0, 10.0]
 
                         st.session_state["shelves"].append(
                             {"rotation": rotation, "dimensions": dimensions_shelf}
@@ -181,14 +186,13 @@ elif page == "Visualization":
         # Instantiate the packer
         packer = Packer()
         
-        # Add the shelf as a bin
-        shelf = st.session_state["shelves"][0]  # Assuming first shelf for now
-        packer.add_bin(Bin('shelf', 
+        for shelf in st.session_state["shelves"]:
+            packer.add_bin(Bin('shelf', 
                           width=float(shelf['dimensions'][0]), 
                           height=float(shelf['dimensions'][1]), 
                           depth=float(shelf['dimensions'][2]), 
                           max_weight=10000)
-        )
+            )
         
         # Add items to be packed
         for item in st.session_state["items"]:

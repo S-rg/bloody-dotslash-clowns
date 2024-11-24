@@ -119,7 +119,7 @@ def get_dims(image):
         )
 
         # Show the image with bounding boxes
-        Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)).show()
+        # Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)).show()
 
 
     dims.sort(key=lambda x: x[2])  # Sort by x-coordinate of the centroid
@@ -150,16 +150,48 @@ def get_objects(im_td, im_side):
 
     return reference_dims, object_dims
 
+def crop_to_object(im):
+    """
+    Calculate 3D dimensions of objects using top-down and side view images.
+    Assuming that the leftmost object in the top-down view is the object we want to label.
+
+    Args:
+        im_td (numpy.ndarray): Top-down view image.
+
+    Returns:
+        tuple: Dimensions of the reference and the measured object.
+    """
+    # Convert the image to grayscale
+    gray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
+    
+    # Blur and threshold to detect contours
+    blurred = cv2.GaussianBlur(gray, (15, 15), 0)
+    _, thresh = cv2.threshold(blurred, 50, 255, cv2.THRESH_BINARY)
+    
+    # Find contours
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    # Sort contours by x-coordinate (leftmost contour will be the object of interest)
+    contours = sorted(contours, key=lambda c: cv2.boundingRect(c)[0])
+
+    x, y, w, h = cv2.boundingRect(contours[0])
+    cropped_im = im[y:y+h, x:x+w]
+
+    # Return the cropped image
+    return cropped_im
+
+
 if __name__ == "__main__":
     image_top = cv2.imread("/Users/suraj/Downloads/bloody-dotslash-clowns/assets/megaminx_top.jpeg")
     image_front = cv2.imread("/Users/suraj/Downloads/bloody-dotslash-clowns/assets/megaminx_front.jpeg")
 
-    ref, obj = get_objects(image_top, image_front)
-    print(f"Reference dims (normalized): {ref}")
-    print(f"Object dims (normalized): {obj}")
+    # ref, obj = get_objects(image_top, image_front)
+    # print(f"Reference dims (normalized): {ref}")
+    # print(f"Object dims (normalized): {obj}")
 
-    real_reference_dims = (5.5, 5.5, 5.5)  # Example real-world reference dimensions
-    real_obj_dims = get_real_dimensions(ref, obj, real_reference_dims)
+    # real_reference_dims = (5.5, 5.5, 5.5)  # Example real-world reference dimensions
+    # real_obj_dims = get_real_dimensions(ref, obj, real_reference_dims)
 
-    print(f"Reference dims (real-world): {real_reference_dims} cm")
-    print(f"Object dims (real-world): {real_obj_dims} cm")
+    # print(f"Reference dims (real-world): {real_reference_dims} cm")
+    # print(f"Object dims (real-world): {real_obj_dims} cm")
+    crop_to_object(image_top, image_front)
