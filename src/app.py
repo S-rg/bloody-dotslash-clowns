@@ -46,9 +46,16 @@ if page == "Home":
             else:
                 for i in range(len(top_views)):
                     st.subheader(f"Item {i + 1}: Configure Dimensions")
+
+                    # Convert the uploaded file to an OpenCV image
+                    top_file_bytes = np.asarray(bytearray(top_views[i].read()), dtype=np.uint8)
+                    image_top = cv2.imdecode(top_file_bytes, cv2.IMREAD_COLOR)
+                    front_file_bytes = np.asarray(bytearray(front_views[i].read()), dtype=np.uint8)
+                    image_front = cv2.imdecode(front_file_bytes, cv2.IMREAD_COLOR)
                     
-                    #TODO: crop image to item, and then run object labeling on it
-                    item_name_val = label_image(top_views[i])
+                    # Crop the image to the object and label it
+                    cropped_image = dobj.crop_to_object(image_top)
+                    item_name_val = label_image(cropped_image)
 
                     item_name = st.text_input(f"Item {i + 1} Name", value=item_name_val)
                     rotation = 1
@@ -70,11 +77,7 @@ if page == "Home":
                         f"Known Height of Reference Object (Item {i + 1})", value=5.5, step=0.1,
                     )
 
-                    # Get the dimensions of the object in the image
-                    top_file_bytes = np.asarray(bytearray(top_views[i].read()), dtype=np.uint8)
-                    image_top = cv2.imdecode(top_file_bytes, cv2.IMREAD_COLOR)
-                    front_file_bytes = np.asarray(bytearray(front_views[i].read()), dtype=np.uint8)
-                    image_front = cv2.imdecode(front_file_bytes, cv2.IMREAD_COLOR)
+                   
                     
                     ref_real = [ref_height, ref_width, ref_length]
                     ref_px, obj_px = dobj.get_objects(image_top, image_front)
