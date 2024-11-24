@@ -99,13 +99,39 @@ if page == "Home":
     # Upload shelf images
     #TODO: Add shelf detection and dimension calculation
     st.header("Shelves")
-    with st.expander("Upload Shelf Images"):
-        top_views_shelf = st.file_uploader(
-            "Upload Top View Images (Shelves)", type=["jpg", "png"], accept_multiple_files=True, key="top_shelf"
-        )
-        front_views_shelf = st.file_uploader(
-            "Upload Front View Images (Shelves)", type=["jpg", "png"], accept_multiple_files=True, key="front_shelf"
-        )
+
+    # Add a checklist for default sizes or custom
+    shelf_type = st.radio(
+        "Select Shelf Type:",
+        ["Small", "Medium", "Large", "Custom"],
+        index=3,  # Default to "Custom"
+    )
+
+    if shelf_type != "Custom":
+        # Predefined dimensions based on the selected size
+        dimensions_shelf = {
+            "Small": [10.0, 15.0, 10.0],
+            "Medium": [30.0, 25.0, 10.0],
+            "Large": [50.0, 40.0, 20.0],
+        }[shelf_type]
+        rotation = 0  # Default rotation for predefined shelves
+        if st.button("Add Predefined Shelf"):
+            st.session_state["shelves"].append({"rotation": rotation, "dimensions": dimensions_shelf})
+            st.success(f"Predefined shelf added with dimensions: {dimensions_shelf} and rotation {rotation}")
+    else:
+        # Custom shelf configuration
+        st.subheader("Upload Shelf Images")
+
+        # File uploaders
+        col1, col2 = st.columns(2)
+        with col1:
+            top_views_shelf = st.file_uploader(
+                "Upload Top View Images (Shelves)", type=["jpg", "png"], accept_multiple_files=True, key="top_shelf"
+            )
+        with col2:
+            front_views_shelf = st.file_uploader(
+                "Upload Front View Images (Shelves)", type=["jpg", "png"], accept_multiple_files=True, key="front_shelf"
+            )
 
         if top_views_shelf and front_views_shelf:
             st.write("Uploaded Top View Images (Shelves):")
@@ -116,44 +142,49 @@ if page == "Home":
             if len(top_views_shelf) != len(front_views_shelf):
                 st.error("The number of top view and front view images for shelves must match.")
             else:
+                # Separate section for each shelf
                 for i in range(len(top_views_shelf)):
-                    st.subheader(f"Shelf {i + 1}: Configure Dimensions")
+                    st.markdown(f"### Shelf {i + 1}: Configure Dimensions")
                     rotation = 0
 
-                    # Reference object details for top view
-                    st.subheader("Reference Object Details (Top View - Shelf)")
-                    ref_width_shelf = st.number_input(
-                        f"Known Width of Reference Object (Shelf {i + 1})", value=25.0, step=0.1
-                    )
-                    ref_length_shelf = st.number_input(
-                        f"Known Length of Reference Object (Shelf {i + 1})", value=15.0, step=0.1
-                    )
-                    ref_size_px_top_shelf = st.number_input(
-                        f"Pixel Size of Reference Object in Top View (Shelf {i + 1})", value=100.0, step=1.0
-                    )
+                    col1, col2 = st.columns(2)
 
-                    shelf_width_px = st.number_input(
-                        f"Pixel Width of Shelf in Top View (Shelf {i + 1})", value=50.0, step=1.0
-                    )
+                    # Top view reference object details
+                    with col1:
+                        st.markdown("**Reference Object Details (Top View)**")
+                        ref_width_shelf = st.number_input(
+                            f"Known Width of Reference Object (Shelf {i + 1})", value=25.0, step=0.1
+                        )
+                        ref_length_shelf = st.number_input(
+                            f"Known Length of Reference Object (Shelf {i + 1})", value=15.0, step=0.1
+                        )
+                        ref_size_px_top_shelf = st.number_input(
+                            f"Pixel Size of Reference Object in Top View (Shelf {i + 1})", value=100.0, step=1.0
+                        )
 
-                    shelf_length_px = st.number_input(
-                        f"Pixel Length of Shelf in Top View (Shelf {i + 1})", value=50.0, step=1.0
-                    )
+                        shelf_width_px = st.number_input(
+                            f"Pixel Width of Shelf in Top View (Shelf {i + 1})", value=50.0, step=1.0
+                        )
 
-                    # Reference object details for front view
-                    st.subheader("Reference Object Details (Front View - Shelf)")
-                    ref_height_shelf = st.number_input(
-                        f"Known Height of Reference Object (Shelf {i + 1})", value=8.0, step=0.1
-                    )
-                    ref_size_px_front_shelf = st.number_input(
-                        f"Pixel Size of Reference Object in Front View (Shelf {i + 1})", value=100.0, step=1.0
-                    )
+                        shelf_length_px = st.number_input(
+                            f"Pixel Length of Shelf in Top View (Shelf {i + 1})", value=50.0, step=1.0
+                        )
 
-                    shelf_height_px = st.number_input(
-                        f"Pixel Height of Shelf in Front View (Shelf {i + 1})", value=50.0, step=1.0
-                    )
+                    # Front view reference object details
+                    with col2:
+                        st.markdown("**Reference Object Details (Front View)**")
+                        ref_height_shelf = st.number_input(
+                            f"Known Height of Reference Object (Shelf {i + 1})", value=8.0, step=0.1
+                        )
+                        ref_size_px_front_shelf = st.number_input(
+                            f"Pixel Size of Reference Object in Front View (Shelf {i + 1})", value=100.0, step=1.0
+                        )
 
-                    if st.button(f"Add Shelf {i + 1}"):
+                        shelf_height_px = st.number_input(
+                            f"Pixel Height of Shelf in Front View (Shelf {i + 1})", value=50.0, step=1.0
+                        )
+
+                    if st.button(f"Add Shelf {i + 1}", key=f"add_shelf_{i}"):
                         # Calculate dimensions
                         ref_dims_shelf = [ref_width_shelf, ref_length_shelf, ref_height_shelf]
                         ref_size_px_shelf = [
@@ -162,12 +193,16 @@ if page == "Home":
                             ref_size_px_front_shelf,
                         ]
                         shelf_size_px = [shelf_width_px, shelf_length_px, shelf_height_px]
-                        dimensions_shelf = [30.0, 40.0, 10.0]
+                        dimensions_shelf = [
+                            (dim * obj_px / ref_px)
+                            for dim, obj_px, ref_px in zip(ref_dims_shelf, shelf_size_px, ref_size_px_shelf)
+                        ]
 
                         st.session_state["shelves"].append(
                             {"rotation": rotation, "dimensions": dimensions_shelf}
                         )
                         st.success(f"Shelf added with dimensions: {dimensions_shelf} and rotation {rotation}")
+
 
     # Display current items and shelves
     st.write("Current Items:")
@@ -177,8 +212,6 @@ if page == "Home":
     st.write("Current Shelves:")
     for shelf in st.session_state["shelves"]:
         shelves = st.write(f"- Shelf with dimensions {shelf['dimensions']}")
-
-    # TODO: Implement deleting and updating the list functionality
 
 
 elif page == "Visualization":
