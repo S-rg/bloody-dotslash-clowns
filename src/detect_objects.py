@@ -1,159 +1,165 @@
 from scipy.spatial import distance as dist
 from imutils import perspective
-from imutils import contours
 import numpy as np
 import imutils
 import cv2
 from PIL import Image
 
 def midpoint(ptA, ptB):
-    """
-    Calculates the midpoint between two 2D points.
-
-    Args:
-    ptA/ptB (tuple[2]): 2D coordinates
-    """
     return ((ptA[0] + ptB[0]) * 0.5, (ptA[1] + ptB[1]) * 0.5)
 
-def get_3_dim_from_dims(dim1, dim2, tolerance=100):
+def normalize_dimensions(object_dims, reference_dims):
     """
-    Finds the real world 3D dimensions of the object, based on 2D dimensions taken from top-down view and side view
+    Normalize object dimensions based on the reference object's dimensions.
 
     Args:
-        dim1 (tuple): A tuple of two dimensions (e.g., height and width) for the first object.
-        dim2 (tuple): A tuple of two dimensions for the second object.
-        tolerance (int): The allowable difference between matching dimensions.
+        object_dims (tuple): Dimensions of the object.
+        reference_dims (tuple): Dimensions of the reference object.
 
     Returns:
-        tuple: A tuple of three dimensions if a match is found; otherwise, None.
+        tuple: Normalized dimensions.
     """
-    for d1 in dim1:
-        for d2 in dim2:
-            if abs(d1 - d2) <= tolerance:
-                return (dim1[0], dim1[1], dim2[0] if d2 == dim2[1] else dim2[1])
+    return tuple(dim / reference_dims[0] for dim in object_dims)
+
+def get_3d_dimensions(top_dims, front_dims):
+    """
+    Match dimensions from top-down and front views to calculate 3D dimensions.
+
+    Args:
+        top_dims (tuple): Dimensions from the top-down view.
+        front_dims (tuple): Dimensions from the front view.
+
+    Returns:
+        tuple: Calculated 3D dimensions.
+    """
+    for t_dim in top_dims:
+        for f_dim in front_dims:
+            if abs(top_dims[0] - f_dim) < 0.2 * t_dim:  # Allowable tolerance
+                return tuple(sorted([top_dims[0], top_dims[1], front_dims[0] if f_dim == front_dims[1] else front_dims[1]]))
     return None
 
+def get_real_dimensions(reference_img_dims, object_dims, input_dims):
+    """
+    Calculate real-world dimensions using normalized dimensions.
 
+    Args:
+        reference_img_dims (tuple): Dimensions of the reference object in pixels.
+        object_dims (tuple): Dimensions of the measured object in pixels.
+        input_dims (tuple): Real-world dimensions of the reference object.
+
+    Returns:
+        tuple: Real-world dimensions of the object.
+    """
+    scale_factors = [input_dims[i] / reference_img_dims[i] for i in range(3)]
+    return tuple(scale_factors[i] * object_dims[i] for i in range(3))
 
 def get_dims(image):
     """
-    Finds the 2 largest objects in an image and gets its dimensions
+    Extract dimensions of the two largest objects in the image.
 
     Args:
-        image (numpy.ndarray): Input image (BGR format)
+        image (numpy.ndarray): Input image.
 
     Returns:
-        list of 2 tuples containing:
-            - dA (float): Height of the object in image
-            - dB (float): Width of the object in image
-            - cX (int): x-coordinate of the centroid of the object in the image
+        list: List of tuples containing dimensions and centroid x-coordinate.
     """
     dims = []
-
-    #removing noise
     grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(grey, (25, 25), 0)
     illumination_corrected = cv2.divide(grey, blurred, scale=255)
     illumination_corrected = cv2.GaussianBlur(illumination_corrected, (7, 7), 0)
-    denoised = cv2.bilateralFilter(illumination_corrected, d=9, sigmaColor=75, sigmaSpace=75)
-    #Image.fromarray(denoised).show()
 
-    #edge detection
-    edged = cv2.Canny(denoised, 50, 100)
+    edged = cv2.Canny(illumination_corrected, 50, 100)
     edged = cv2.dilate(edged, None, iterations=1)
     edged = cv2.erode(edged, None, iterations=1)
-    #Image.fromarray(edged).show()
 
-    #obtaining contours from edges
     cnts = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     cnts = imutils.grab_contours(cnts)
-    cnts = sorted(cnts, key=cv2.contourArea, reverse=True)
+    cnts = sorted(cnts, key=cv2.contourArea, reverse=True)[:2]
 
-
-    for c in cnts[:2]:
-        # compute the rotated bounding box of the contour
-        orig = image.copy()
+    for c in cnts:
         box = cv2.minAreaRect(c)
-        box = cv2.cv.BoxPoints(box) if imutils.is_cv2() else cv2.boxPoints(box)
-        box = np.array(box, dtype="int")
-
-        #Order the points
+        box = cv2.boxPoints(box) if imutils.is_cv3() else cv2.boxPoints(box)
         box = perspective.order_points(box)
-        cv2.drawContours(orig, [box.astype("int")], -1, (0, 255, 0), 2)
 
-        # loop over the original points and draw them
-        for (x, y) in box:
-            cv2.circle(orig, (int(x), int(y)), 5, (0, 0, 255), -1)
-
-        #compute midpoints
         (tl, tr, br, bl) = box
         (tltrX, tltrY) = midpoint(tl, tr)
         (blbrX, blbrY) = midpoint(bl, br)
         (tlblX, tlblY) = midpoint(tl, bl)
         (trbrX, trbrY) = midpoint(tr, br)
 
-        #find the centroid
-        M = cv2.moments(c)
-        cX = int(M["m10"] / M["m00"]) if M["m00"] != 0 else 0
-
-        # draw the midpoints on the image
-        cv2.circle(orig, (int(tltrX), int(tltrY)), 5, (255, 0, 0), -1)
-        cv2.circle(orig, (int(blbrX), int(blbrY)), 5, (255, 0, 0), -1)
-        cv2.circle(orig, (int(tlblX), int(tlblY)), 5, (255, 0, 0), -1)
-        cv2.circle(orig, (int(trbrX), int(trbrY)), 5, (255, 0, 0), -1)
-
-        # draw lines between the midpoints
-        cv2.line(orig, (int(tltrX), int(tltrY)), (int(blbrX), int(blbrY)),
-            (255, 0, 255), 2)
-        cv2.line(orig, (int(tlblX), int(tlblY)), (int(trbrX), int(trbrY)),
-            (255, 0, 255), 2)
-
-        # compute the Euclidean distance between the midpoints
         dA = dist.euclidean((tltrX, tltrY), (blbrX, blbrY))
         dB = dist.euclidean((tlblX, tlblY), (trbrX, trbrY))
 
+        M = cv2.moments(c)
+        cX = int(M["m10"] / M["m00"] if M["m00"] != 0 else 0)
         dims.append((dA, dB, cX))
 
-        # draw the object sizes on the image
-        # cv2.putText(orig, "{:.1f}in".format(dimA),
-        #     (int(tltrX - 15), int(tltrY - 10)), cv2.FONT_HERSHEY_SIMPLEX,
-        #     0.65, (255, 255, 255), 2)
-        # cv2.putText(orig, "{:.1f}in".format(dimB),
-        #     (int(trbrX + 10), int(trbrY)), cv2.FONT_HERSHEY_SIMPLEX,
-        #     0.65, (255, 255, 255), 2)
-        Image.fromarray(orig).show()
-        
-    return dims
+        # Draw the bounding box on the original image
+        cv2.drawContours(image, [box.astype("int")], -1, (0, 255, 0), 2)
 
+        # Optional: Annotate dimensions
+        cv2.putText(
+            image,
+            f"{dA:.1f}px",
+            (int(tl[0]), int(tl[1] - 10)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (255, 255, 255),
+            1,
+        )
+        cv2.putText(
+            image,
+            f"{dB:.1f}px",
+            (int(tr[0] + 10), int(tr[1])),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (255, 255, 255),
+            1,
+        )
+
+        # Show the image with bounding boxes
+        Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)).show()
+
+
+    dims.sort(key=lambda x: x[2])  # Sort by x-coordinate of the centroid
+    return dims
 
 def get_objects(im_td, im_side):
     """
-    Computes the 3D dimensions of an object, and a known reference object using top down and side view images
+    Calculate 3D dimensions of objects using top-down and side view images.
 
     Args:
-        im_td (numpy.ndarray): Top-down view image
-        im_side (numpy.ndarray): Side view image
+        im_td (numpy.ndarray): Top-down view image.
+        im_side (numpy.ndarray): Side view image.
 
     Returns:
-        Tuple containing two 3d dimensions:
-            - reference_dim (tuple): The dimensions of the reference object
-            - object_dim (tuple): The dimensions of the second object
+        tuple: Dimensions of the reference and the measured object.
     """
-
     td_dims = get_dims(im_td)
     side_dims = get_dims(im_side)
 
-    #ensures only 2 objects
-    assert len(td_dims) != 2 or len(side_dims != 2)
-    
-    #identify the reference object
-    left_td_dim = td_dims[0] if td_dims[0][2] < td_dims[1][2] else td_dims[1]
-    left_side_dim = side_dims[0] if side_dims[0][2] < side_dims[1][2] else side_dims[1]
-    reference_dim = get_3_dim_from_dims(left_td_dim, left_side_dim)
+    reference_td = td_dims[1]  # Rightmost object in top-down view
+    object_td = td_dims[0]
 
-    #identify the packing object
-    right_td_dim = td_dims[0] if left_td_dim is td_dims[1] else td_dims[1]
-    right_side_dim = side_dims[0] if left_side_dim is side_dims[1] else side_dims[1]
-    object_dim = get_3_dim_from_dims(right_td_dim, right_side_dim)
+    reference_side = side_dims[1]  # Rightmost object in side view
+    object_side = side_dims[0]
 
-    return (reference_dim, object_dim)
+    reference_dims = get_3d_dimensions(reference_td[:2], reference_side[:2])
+    object_dims = get_3d_dimensions(object_td[:2], object_side[:2])
+
+    return reference_dims, object_dims
+
+if __name__ == "__main__":
+    image_top = cv2.imread("/Users/suraj/Downloads/bloody-dotslash-clowns/assets/megaminx_top.jpeg")
+    image_front = cv2.imread("/Users/suraj/Downloads/bloody-dotslash-clowns/assets/megaminx_front.jpeg")
+
+    ref, obj = get_objects(image_top, image_front)
+    print(f"Reference dims (normalized): {ref}")
+    print(f"Object dims (normalized): {obj}")
+
+    real_reference_dims = (5.5, 5.5, 5.5)  # Example real-world reference dimensions
+    real_obj_dims = get_real_dimensions(ref, obj, real_reference_dims)
+
+    print(f"Reference dims (real-world): {real_reference_dims} cm")
+    print(f"Object dims (real-world): {real_obj_dims} cm")
